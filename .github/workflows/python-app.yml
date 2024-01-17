@@ -30,6 +30,7 @@ jobs:
         poetry install
     - name: Test with pytest
       run: |
+        source $(poetry env info -p)/bin/activate
         python -c "import numpy"
         python -c "import sequence_metrics"
         python -c "from sequence_metrics.metrics import *"
