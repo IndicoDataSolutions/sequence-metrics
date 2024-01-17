@@ -28,12 +28,9 @@ jobs:
         python -m pip install --upgrade pip
         pip install flake8 pytest poetry
         poetry install
-        env
-        which python
     - name: Test with pytest
       run: |
-        env
-        which python
+        python -c "import numpy"
         python -c "import sequence_metrics"
         python -c "from sequence_metrics.metrics import *"
         pytest
