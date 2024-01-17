@@ -28,8 +28,6 @@ jobs:
         python -m pip install --upgrade pip
         pip install pytest poetry
         poetry install
-        env
-        which python
     - name: Test with pytest
       run: |
         source $(poetry env info -p)/bin/activate
