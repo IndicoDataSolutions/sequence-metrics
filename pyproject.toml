@@ -6,7 +6,7 @@ authors = ["Indico Data <rd@indicodata.ai>"]
 packages = [ { include = "sequence_metrics" } ]
 
 [tool.poetry.dependencies]
-python = ">=3.7"
+python = ">=3.10"
 spacy = "~3.0.0"
 scikit-learn = "~1.0.0"
 
