@@ -1,8 +1,9 @@
 import pytest
+
 from sequence_metrics.metrics import (
-    seq_recall,
-    seq_precision,
     get_seq_count_fn,
+    seq_precision,
+    seq_recall,
     sequence_f1,
     sequences_overlap,
 )

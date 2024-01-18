@@ -1,26 +1,27 @@
 import copy
+import re
+from collections import OrderedDict, defaultdict
 from functools import partial
-from collections import defaultdict, OrderedDict
 
 import numpy as np
+import spacy
+import tabulate
 from sklearn.metrics import confusion_matrix
 
-import tabulate
-
-import re
-import spacy
-import numpy as np
-
 NLP = None
+
 
 def get_spacy():
     global NLP
     if NLP is None:
-        NLP = spacy.load("en_core_web_sm", disable=["parser", "tagger", "ner", "textcat"])
+        NLP = spacy.load(
+            "en_core_web_sm", disable=["parser", "tagger", "ner", "textcat"]
+        )
         NLP.max_length = (
             800000000  # approximately one volume of the encyclopedia britannica.
         )
     return NLP
+
 
 def _get_unique_classes(true, predicted):
     true_and_pred = list(true) + list(predicted)
@@ -112,7 +113,6 @@ def sequence_labeling_token_counts(true, predicted):
                     pred_token["start"] == true_token["start"]
                     and pred_token["end"] == true_token["end"]
                 ):
-
                     if pred_token["label"] == true_token["label"]:
                         d[true_token["label"]]["true_positives"].append(true_token)
                     else:
@@ -253,7 +253,6 @@ def fuzzy_compare(x: dict, y: dict) -> bool:
     return _norm_text(x["text"]) == _norm_text(y["text"])
 
 
-
 def sequence_labeling_token_precision(true, predicted):
     """
     Token level precision
@@ -345,7 +344,6 @@ def get_seq_count_fn(span_type="token"):
         "exact": partial(sequence_labeling_counts, equality_fn=sequence_exact_match),
         "superset": partial(sequence_labeling_counts, equality_fn=sequence_superset),
         "value": partial(sequence_labeling_counts, equality_fn=fuzzy_compare),
-
     }
     return span_type_fn_mapping[span_type]
 
@@ -398,7 +396,7 @@ def annotation_report(
         dict(count_dict),
     ]
     labels = set(token_precision.keys()) | set(token_recall.keys())
-    target_names = [u"%s" % l for l in labels]
+    target_names = ["%s" % l for l in labels]
     counts = [count_dict.get(target_name, 0) for target_name in target_names]
 
     last_line_heading = "Weighted Summary"
@@ -409,16 +407,16 @@ def annotation_report(
         "overlap_recall",
         "support",
     ]
-    head_fmt = u"{:>{width}s} " + u" {:>{width}}" * len(headers)
-    report = head_fmt.format(u"", *headers, width=width)
-    report += u"\n\n"
-    row_fmt = u"{:>{width}s} " + u" {:>{width}.{digits}f}" * 4 + u" {:>{width}}" "\n"
+    head_fmt = "{:>{width}s} " + " {:>{width}}" * len(headers)
+    report = head_fmt.format("", *headers, width=width)
+    report += "\n\n"
+    row_fmt = "{:>{width}s} " + " {:>{width}.{digits}f}" * 4 + " {:>{width}}" "\n"
     seqs = [[seq.get(target_name, 0.0) for target_name in target_names] for seq in seqs]
     rows = zip(target_names, *seqs)
     for row in rows:
         report += row_fmt.format(*row, width=width, digits=digits)
 
-    report += u"\n"
+    report += "\n"
     averages = [np.average(seq, weights=counts) for seq in seqs[:-1]] + [
         np.sum(seqs[-1])
     ]
