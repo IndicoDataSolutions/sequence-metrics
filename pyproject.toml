@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "sequence-metrics"
-version = "0.0.1"
+version = "0.0.2"
 description = "A set of metrics for Sequence Labelling tasks"
 authors = ["Indico Data <rd@indicodata.ai>"]
 packages = [ { include = "sequence_metrics" } ]
