@@ -5,12 +5,15 @@ on:
   pull_request: # Temporary - just for testing.
     branches: [ "main" ]
 
-permissions:
-  contents: read
-
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/sequence-metrics
+    permissions:
+      contents: read
+      id-token: write
     steps:
     - uses: actions/checkout@v3
     - name: Set up Python
