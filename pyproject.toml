@@ -2,6 +2,7 @@
 name = "sequence-metrics"
 version = "0.0.1"
 description = "A set of metrics for Sequence Labelling tasks"
+readme = "README.md"
 authors = ["Indico Data <rd@indicodata.ai>"]
 packages = [ { include = "sequence_metrics" } ]
 
