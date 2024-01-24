@@ -296,6 +296,49 @@ def sequence_superset(true_seq, pred_seq):
     return pred_seq["start"] <= true_seq["start"] and pred_seq["end"] >= true_seq["end"]
 
 
+def _convert_to_value_set(spans):
+    return set([(_norm_text(span["text"]), span["label"]) for span in spans])
+
+
+def sequence_labeling_value_counts(true, predicted):
+    """
+    Return FP, FN, and TP counts
+    """
+    unique_classes = _get_unique_classes(true, predicted)
+
+    d = {
+        cls_: {"false_positives": [], "false_negatives": [], "true_positives": []}
+        for cls_ in unique_classes
+    }
+
+    for i, (true_list, pred_list) in enumerate(zip(true, predicted)):
+        true_values: set[tuple] = _convert_to_value_set(true_list)
+        pred_values: set[tuple] = _convert_to_value_set(pred_list)
+
+        # correct + false negatives
+        for true_value, true_label in true_values:
+            for pred_value, pred_label in pred_values:
+                if true_value == pred_value:
+                    if true_label == pred_label:
+                        d[true_label]["true_positives"].append(true_value)
+                    else:
+                        d[true_label]["false_negatives"].append(true_value)
+                        d[pred_label]["false_positives"].append(pred_value)
+                    break
+            else:
+                d[true_label]["false_negatives"].append(true_value)
+
+        # false positives
+        for pred_value, pred_label in pred_values:
+            for true_value, true_label in true_values:
+                if pred_value == true_value:
+                    break
+            else:
+                d[pred_label]["false_positives"].append(pred_value)
+
+    return d
+
+
 def sequence_labeling_counts(true, predicted, equality_fn):
     """
     Return FP, FN, and TP counts
@@ -343,7 +386,7 @@ def get_seq_count_fn(span_type="token"):
         "overlap": partial(sequence_labeling_counts, equality_fn=sequences_overlap),
         "exact": partial(sequence_labeling_counts, equality_fn=sequence_exact_match),
         "superset": partial(sequence_labeling_counts, equality_fn=sequence_superset),
-        "value": partial(sequence_labeling_counts, equality_fn=fuzzy_compare),
+        "value": sequence_labeling_value_counts,
     }
     return span_type_fn_mapping[span_type]
 
