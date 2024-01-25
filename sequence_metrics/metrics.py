@@ -337,6 +337,15 @@ def sequence_labeling_counts(true, predicted, equality_fn):
     return d
 
 
+EQUALITY_FN_MAP = {
+    "overlap": sequences_overlap,
+    "exact": sequence_exact_match,
+    "superset": sequence_superset,
+    "value": fuzzy_compare,
+}
+
+
+# TODO: reqwite this to use the map above
 def get_seq_count_fn(span_type="token"):
     span_type_fn_mapping = {
         "token": sequence_labeling_token_counts,
