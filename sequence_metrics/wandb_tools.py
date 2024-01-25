@@ -6,6 +6,7 @@ import wandb
 from sequence_metrics.metrics import (
     EQUALITY_FN_MAP,
     _get_unique_classes,
+    get_all_metrics,
     get_seq_count_fn,
 )
 
@@ -49,6 +50,21 @@ def map_span(pred, tpe):
         else:
             output[key] = value
     return output
+
+
+def span_type_metrics_to_dataframe(span_type_metrics):
+    records = []
+    for cls, class_metrics in span_type_metrics.items():
+        records.append({"class": cls, **class_metrics})
+    return pd.DataFrame.from_records(records)
+
+
+def flatten_summary_metrics(summary_metrics):
+    return {
+        f"{span_type}_{key}": value
+        for span_type, span_type_metrics in summary_metrics.items()
+        for key, value in span_type_metrics.items()
+    }
 
 
 def log_to_wandb(
@@ -118,12 +134,23 @@ def log_to_wandb(
 
     for table_name, df_table in tables.items():
         wandb.log({table_name: wandb.Table(dataframe=df_table)})
-    wandb.log(
-        {"documents": wandb.Table(dataframe=pd.DataFrame.from_records(documents))}
-    )
 
-    # Calculate all normal metrics
-    # log class-level metrics as tables
-    # log the aggregate metrics as values
-    #
-    # Return a structure equalivalent to the one that wandb logged..
+    documents_df = pd.DataFrame.from_records(documents)
+    wandb.log({"documents": wandb.Table(dataframe=documents_df)})
+    all_metrics = get_all_metrics(pred_y, test_y)
+    class_metrics_tables = {
+        f"{span_type}_metrics": wandb.Table(
+            dataframe=span_type_metrics_to_dataframe(span_type_metrics)
+        )
+        for span_type, span_type_metrics in all_metrics["class_metrics"].items()
+    }
+    wandb.log(class_metrics_tables)
+    wandb.log(flatten_summary_metrics(all_metrics["summary_metrics"]))
+    wandb.log(metadata)
+
+    return {
+        "example_tables": tables,
+        "all_metrics": all_metrics,
+        "documents_table": documents_df,
+        "metadata": metadata,
+    }
