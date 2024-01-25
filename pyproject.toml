@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "sequence-metrics"
-version = "0.0.2"
+version = "0.0.3"
 description = "A set of metrics for Sequence Labelling tasks"
 readme = "README.md"
 authors = ["Indico Data <rd@indicodata.ai>"]
