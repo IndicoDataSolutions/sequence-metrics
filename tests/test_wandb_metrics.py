@@ -5,7 +5,7 @@ from sequence_metrics.wandb_tools import log_to_wandb
 
 
 def test_metrics():
-    wandb.init(project="test_metrics-2", entity="indico")
+    wandb.init(mode="offline")
     log_to_wandb(
         test_x=["a and b"],
         test_y=[
