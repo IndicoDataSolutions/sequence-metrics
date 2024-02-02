@@ -772,6 +772,81 @@ def test_value_metrics(pred):
     )
 
 
+def test_value_metrics_multi():
+    y_true = [
+        {
+            "start": 5,
+            "end": 11,
+            "text": "Friday",
+            "label": "label1",
+        },
+        {
+            "start": 16,
+            "end": 21,
+            "text": "Friday",
+            "label": "label1",
+        },
+        {
+            "start": 35,
+            "end": 41,
+            "text": "wednesday",
+            "label": "label1",
+        },
+    ]
+
+    y_pred = [
+        {
+            "start": 5,
+            "end": 11,
+            "text": "Friday",
+            "label": "label1",
+        },
+        {
+            "start": 16,
+            "end": 21,
+            "text": "friday",
+            "label": "label1",
+        },
+        {
+            "start": 26,
+            "end": 32,
+            "text": "friday.",
+            "label": "label1",
+        },
+        {
+            "start": 26,
+            "end": 32,
+            "text": "thursday",
+            "label": "label1",
+        },
+    ]
+    expected = {
+        "label1": {
+            "false_positives": 1,
+            "false_negatives": 1,
+            "true_positives": 1,
+            "precision": 0.5,
+            "recall": 0.5,
+            "f1-score": 0.5,
+        },
+        "micro_f1": 0.5,
+        "macro_f1": 0.5,
+        "weighted_f1": 0.5,
+        "micro_precision": 0.5,
+        "macro_precision": 0.5,
+        "weighted_precision": 0.5,
+        "micro_recall": 0.5,
+        "macro_recall": 0.5,
+        "weighted_recall": 0.5,
+    }
+    check_metrics(
+        [y_true],
+        [y_pred],
+        expected=expected,
+        span_type="value",
+    )
+
+
 def verify_all_metrics_structure(all_metrics, classes):
     span_types = ["token", "overlap", "exact", "superset", "value"]
     assert len(all_metrics.keys()) == 2
