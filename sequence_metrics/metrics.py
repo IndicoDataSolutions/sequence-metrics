@@ -2,6 +2,7 @@ import copy
 import re
 from collections import OrderedDict, defaultdict
 from functools import partial
+from typing import Callable
 
 import numpy as np
 import spacy
@@ -345,16 +346,25 @@ EQUALITY_FN_MAP = {
 }
 
 
-# TODO: reqwite this to use the map above
-def get_seq_count_fn(span_type="token"):
-    span_type_fn_mapping = {
-        "token": sequence_labeling_token_counts,
-        "overlap": partial(sequence_labeling_counts, equality_fn=sequences_overlap),
-        "exact": partial(sequence_labeling_counts, equality_fn=sequence_exact_match),
-        "superset": partial(sequence_labeling_counts, equality_fn=sequence_superset),
-        "value": partial(sequence_labeling_counts, equality_fn=fuzzy_compare),
-    }
-    return span_type_fn_mapping[span_type]
+SPAN_TYPE_FN_MAPPING = {
+    "token": sequence_labeling_token_counts,
+    "overlap": partial(sequence_labeling_counts, equality_fn=sequences_overlap),
+    "exact": partial(sequence_labeling_counts, equality_fn=sequence_exact_match),
+    "superset": partial(sequence_labeling_counts, equality_fn=sequence_superset),
+    "value": partial(sequence_labeling_counts, equality_fn=fuzzy_compare),
+}
+
+
+def get_seq_count_fn(span_type: str | Callable = "token"):
+    if isinstance(span_type, str):
+        return SPAN_TYPE_FN_MAPPING[span_type]
+    elif callable(span_type):
+        # Interpret span_type as an equality function
+        return partial(sequence_labeling_counts, equality_fn=span_type)
+
+    raise ValueError(
+        f"Invalid span_type: {span_type}.  Must either be a string or a callable."
+    )
 
 
 def sequence_labeling_overlap_precision(true, predicted):

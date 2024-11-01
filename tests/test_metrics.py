@@ -888,3 +888,45 @@ def test_empty_preds_metrics(classes):
 def test_empty_preds_metrics(classes):
     all_metrics = get_all_metrics(preds=[[]], labels=[[]], field_names=classes)
     verify_all_metrics_structure(all_metrics=all_metrics, classes=classes)
+
+
+def _same_charset(a: dict, b: dict):
+    return set(a["text"]) == set(b["text"])
+
+
+@pytest.mark.parametrize(
+    "true,pred,expected",
+    [
+        (
+            [[{"text": "a", "label": "class1"}]],
+            [[{"text": "a", "label": "class1"}]],
+            {"TP": 1, "FP": 0, "FN": 0},
+        ),
+        (
+            [[{"text": "a", "label": "class1"}]],
+            [[{"text": "b", "label": "class1"}]],
+            {"TP": 0, "FP": 1, "FN": 1},
+        ),
+        (
+            [[{"text": "ab", "label": "class1"}]],
+            [[{"text": "ba", "label": "class1"}]],
+            {"TP": 1, "FP": 0, "FN": 0},
+        ),
+        (
+            [[{"text": "ab", "label": "class1"}]],
+            [[{"text": "ba", "label": "class1"}, {"text": "ac", "label": "class1"}]],
+            {"TP": 1, "FP": 1, "FN": 0},
+        ),
+    ],
+)
+def test_custom_equality_fn(true, pred, expected):
+    result = get_seq_count_fn(_same_charset)(true, pred)
+    print(result)
+    result_subset = {
+        k: v
+        for k, v in result["class1"].items()
+        if k in ["true_positives", "false_positives", "false_negatives"]
+    }
+    assert len(result_subset["true_positives"]) == expected["TP"]
+    assert len(result_subset["false_positives"]) == expected["FP"]
+    assert len(result_subset["false_negatives"]) == expected["FN"]
