@@ -159,7 +159,7 @@ def calc_f1(recall, precision):
         return 0.0
 
 
-def seq_recall(true, predicted, span_type="token"):
+def seq_recall(true, predicted, span_type: str | Callable = "token"):
     count_fn = get_seq_count_fn(span_type)
     class_counts = count_fn(true, predicted)
     results = {}
@@ -170,7 +170,7 @@ def seq_recall(true, predicted, span_type="token"):
     return results
 
 
-def seq_precision(true, predicted, span_type="token"):
+def seq_precision(true, predicted, span_type: str | Callable = "token"):
     count_fn = get_seq_count_fn(span_type)
     class_counts = count_fn(true, predicted)
     results = {}
@@ -181,7 +181,7 @@ def seq_precision(true, predicted, span_type="token"):
     return results
 
 
-def micro_f1(true, predicted, span_type="token"):
+def micro_f1(true, predicted, span_type: str | Callable = "token"):
     count_fn = get_seq_count_fn(span_type)
     class_counts = count_fn(true, predicted)
     TP, FP, FN = 0, 0, 0
@@ -194,7 +194,7 @@ def micro_f1(true, predicted, span_type="token"):
     return calc_f1(recall, precision)
 
 
-def per_class_f1(true, predicted, span_type="token"):
+def per_class_f1(true, predicted, span_type: str | Callable = "token"):
     """
     F1-scores per class
     """
@@ -213,7 +213,7 @@ def per_class_f1(true, predicted, span_type="token"):
     return results
 
 
-def sequence_f1(true, predicted, span_type="token", average=None):
+def sequence_f1(true, predicted, span_type: str | Callable = "token", average=None):
     """
     If average = None, return per-class F1 scores, otherwise
     return the requested model-level score.

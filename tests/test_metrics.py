@@ -895,33 +895,36 @@ def _same_charset(a: dict, b: dict):
 
 
 @pytest.mark.parametrize(
-    "true,pred,expected",
+    "true,pred,expected,expected_f1",
     [
         (
             [[{"text": "a", "label": "class1"}]],
             [[{"text": "a", "label": "class1"}]],
             {"TP": 1, "FP": 0, "FN": 0},
+            1.0,
         ),
         (
             [[{"text": "a", "label": "class1"}]],
             [[{"text": "b", "label": "class1"}]],
             {"TP": 0, "FP": 1, "FN": 1},
+            0.0,
         ),
         (
             [[{"text": "ab", "label": "class1"}]],
             [[{"text": "ba", "label": "class1"}]],
             {"TP": 1, "FP": 0, "FN": 0},
+            1.0,
         ),
         (
             [[{"text": "ab", "label": "class1"}]],
             [[{"text": "ba", "label": "class1"}, {"text": "ac", "label": "class1"}]],
             {"TP": 1, "FP": 1, "FN": 0},
+            0.6666,
         ),
     ],
 )
-def test_custom_equality_fn(true, pred, expected):
+def test_custom_equality_fn(true, pred, expected, expected_f1):
     result = get_seq_count_fn(_same_charset)(true, pred)
-    print(result)
     result_subset = {
         k: v
         for k, v in result["class1"].items()
@@ -930,3 +933,5 @@ def test_custom_equality_fn(true, pred, expected):
     assert len(result_subset["true_positives"]) == expected["TP"]
     assert len(result_subset["false_positives"]) == expected["FP"]
     assert len(result_subset["false_negatives"]) == expected["FN"]
+    predicted_f1 = sequence_f1(true, pred, span_type=_same_charset, average="macro")
+    assert abs(predicted_f1 - expected_f1) < 0.001
