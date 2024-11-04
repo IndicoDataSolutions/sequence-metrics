@@ -1,7 +1,9 @@
 import copy
 import re
 from collections import OrderedDict, defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import partial
+from typing import Callable
 
 import numpy as np
 import spacy
@@ -158,7 +160,7 @@ def calc_f1(recall, precision):
         return 0.0
 
 
-def seq_recall(true, predicted, span_type="token"):
+def seq_recall(true, predicted, span_type: str | Callable = "token"):
     count_fn = get_seq_count_fn(span_type)
     class_counts = count_fn(true, predicted)
     results = {}
@@ -169,7 +171,7 @@ def seq_recall(true, predicted, span_type="token"):
     return results
 
 
-def seq_precision(true, predicted, span_type="token"):
+def seq_precision(true, predicted, span_type: str | Callable = "token"):
     count_fn = get_seq_count_fn(span_type)
     class_counts = count_fn(true, predicted)
     results = {}
@@ -180,7 +182,7 @@ def seq_precision(true, predicted, span_type="token"):
     return results
 
 
-def micro_f1(true, predicted, span_type="token"):
+def micro_f1(true, predicted, span_type: str | Callable = "token"):
     count_fn = get_seq_count_fn(span_type)
     class_counts = count_fn(true, predicted)
     TP, FP, FN = 0, 0, 0
@@ -193,7 +195,7 @@ def micro_f1(true, predicted, span_type="token"):
     return calc_f1(recall, precision)
 
 
-def per_class_f1(true, predicted, span_type="token"):
+def per_class_f1(true, predicted, span_type: str | Callable = "token"):
     """
     F1-scores per class
     """
@@ -212,7 +214,7 @@ def per_class_f1(true, predicted, span_type="token"):
     return results
 
 
-def sequence_f1(true, predicted, span_type="token", average=None):
+def sequence_f1(true, predicted, span_type: str | Callable = "token", average=None):
     """
     If average = None, return per-class F1 scores, otherwise
     return the requested model-level score.
@@ -296,43 +298,75 @@ def sequence_superset(true_seq, pred_seq):
     return pred_seq["start"] <= true_seq["start"] and pred_seq["end"] >= true_seq["end"]
 
 
-def sequence_labeling_counts(true, predicted, equality_fn):
+def single_class_single_example_counts(true, predicted, equality_fn):
+    """
+    Return FP, FN, and TP counts for a single class
+    """
+    # Some of the equality_fn checks are redundant, so it's helpful if the equality_fn is cached
+    counts = {"false_positives": [], "false_negatives": [], "true_positives": []}
+    for true_annotation in true:
+        for pred_annotation in predicted:
+            if equality_fn(true_annotation, pred_annotation):
+                counts["true_positives"].append(true_annotation)
+                break
+        else:
+            counts["false_negatives"].append(true_annotation)
+
+    for pred_annotation in predicted:
+        for true_annotation in true:
+            if equality_fn(true_annotation, pred_annotation):
+                break
+        else:
+            counts["false_positives"].append(pred_annotation)
+    return counts
+
+
+def sequence_labeling_counts(true, predicted, equality_fn, n_threads=5):
     """
     Return FP, FN, and TP counts
     """
     unique_classes = _get_unique_classes(true, predicted)
 
-    d = {
-        cls_: {"false_positives": [], "false_negatives": [], "true_positives": []}
-        for cls_ in unique_classes
-    }
+    d = {}
+    future_to_cls = {}
+    with ThreadPoolExecutor(max_workers=n_threads) as pool:
+        for cls_ in unique_classes:
+            d[cls_] = {
+                "false_positives": [],
+                "false_negatives": [],
+                "true_positives": [],
+            }
+            for i, (true_annotations, predicted_annotations) in enumerate(
+                zip(true, predicted)
+            ):
+                # Per example
+                true_cls_annotations = [
+                    annotation
+                    for annotation in true_annotations
+                    if annotation["label"] == cls_
+                ]
+                predicted_cls_annotations = [
+                    annotation
+                    for annotation in predicted_annotations
+                    if annotation["label"] == cls_
+                ]
+                for annotations in [predicted_cls_annotations, true_cls_annotations]:
+                    for annotation in annotations:
+                        annotation["doc_idx"] = i
 
-    for i, (true_annotations, predicted_annotations) in enumerate(zip(true, predicted)):
-        # add doc idx to make verification easier
-        for annotations in [true_annotations, predicted_annotations]:
-            for annotation in annotations:
-                annotation["doc_idx"] = i
+                ex_counts_future = pool.submit(
+                    single_class_single_example_counts,
+                    true_cls_annotations,
+                    predicted_cls_annotations,
+                    equality_fn,
+                )
+                future_to_cls[ex_counts_future] = cls_
 
-        for true_annotation in true_annotations:
-            for pred_annotation in predicted_annotations:
-                if equality_fn(true_annotation, pred_annotation):
-                    if pred_annotation["label"] == true_annotation["label"]:
-                        d[true_annotation["label"]]["true_positives"].append(
-                            true_annotation
-                        )
-                        break
-            else:
-                d[true_annotation["label"]]["false_negatives"].append(true_annotation)
-
-        for pred_annotation in predicted_annotations:
-            for true_annotation in true_annotations:
-                if (
-                    equality_fn(true_annotation, pred_annotation)
-                    and true_annotation["label"] == pred_annotation["label"]
-                ):
-                    break
-            else:
-                d[pred_annotation["label"]]["false_positives"].append(pred_annotation)
+    for future in future_to_cls:
+        cls_ = future_to_cls[future]
+        ex_counts = future.result()
+        for key, value in ex_counts.items():
+            d[cls_][key].extend(value)
 
     return d
 
@@ -345,16 +379,25 @@ EQUALITY_FN_MAP = {
 }
 
 
-# TODO: reqwite this to use the map above
-def get_seq_count_fn(span_type="token"):
-    span_type_fn_mapping = {
-        "token": sequence_labeling_token_counts,
-        "overlap": partial(sequence_labeling_counts, equality_fn=sequences_overlap),
-        "exact": partial(sequence_labeling_counts, equality_fn=sequence_exact_match),
-        "superset": partial(sequence_labeling_counts, equality_fn=sequence_superset),
-        "value": partial(sequence_labeling_counts, equality_fn=fuzzy_compare),
-    }
-    return span_type_fn_mapping[span_type]
+SPAN_TYPE_FN_MAPPING = {
+    "token": sequence_labeling_token_counts,
+    "overlap": partial(sequence_labeling_counts, equality_fn=sequences_overlap),
+    "exact": partial(sequence_labeling_counts, equality_fn=sequence_exact_match),
+    "superset": partial(sequence_labeling_counts, equality_fn=sequence_superset),
+    "value": partial(sequence_labeling_counts, equality_fn=fuzzy_compare),
+}
+
+
+def get_seq_count_fn(span_type: str | Callable = "token"):
+    if isinstance(span_type, str):
+        return SPAN_TYPE_FN_MAPPING[span_type]
+    elif callable(span_type):
+        # Interpret span_type as an equality function
+        return partial(sequence_labeling_counts, equality_fn=span_type)
+
+    raise ValueError(
+        f"Invalid span_type: {span_type}.  Must either be a string or a callable."
+    )
 
 
 def sequence_labeling_overlap_precision(true, predicted):
