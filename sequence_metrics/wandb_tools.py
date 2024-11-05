@@ -7,7 +7,7 @@ from sequence_metrics.metrics import (
     EQUALITY_FN_MAP,
     _get_unique_classes,
     get_all_metrics,
-    get_seq_count_fn,
+    get_seq_quadrants_fn,
 )
 
 
@@ -31,12 +31,6 @@ PRED_TYPE_MAP = {
     "true_positives": "TP",
     "false_negatives": "FN",
 }
-
-
-def sequence_labeling_counts(true, predicted, equality_fn):
-    """
-    Return FP, FN, and TP counts
-    """
 
 
 def map_span(pred, tpe):

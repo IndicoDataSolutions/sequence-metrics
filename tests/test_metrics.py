@@ -2,7 +2,7 @@ import pytest
 
 from sequence_metrics.metrics import (
     get_all_metrics,
-    get_seq_count_fn,
+    get_seq_quadrants_fn,
     seq_precision,
     seq_recall,
     sequence_f1,
@@ -57,7 +57,7 @@ def test_overlap(a, b, expected):
 
 
 def check_metrics(Y, Y_pred, expected, span_type=None):
-    counts = get_seq_count_fn(span_type)(Y, Y_pred)
+    counts = get_seq_quadrants_fn(span_type)(Y, Y_pred)
     precisions = seq_precision(Y, Y_pred, span_type=span_type)
     recalls = seq_recall(Y, Y_pred, span_type=span_type)
     micro_f1_score = sequence_f1(Y, Y_pred, span_type=span_type, average="micro")
@@ -876,7 +876,7 @@ def _same_charset(a: dict, b: dict):
     ],
 )
 def test_custom_equality_fn(true, pred, expected, expected_f1):
-    result = get_seq_count_fn(_same_charset)(true, pred)
+    result = get_seq_quadrants_fn(_same_charset)(true, pred)
     result_subset = {
         k: v
         for k, v in result["class1"].items()
@@ -887,3 +887,32 @@ def test_custom_equality_fn(true, pred, expected, expected_f1):
     assert len(result_subset["false_negatives"]) == expected["FN"]
     predicted_f1 = sequence_f1(true, pred, span_type=_same_charset, average="macro")
     assert abs(predicted_f1 - expected_f1) < 0.001
+
+
+@pytest.mark.parametrize(
+    "span_type", ["value", "exact", "overlap", lambda x, y: x["text"] == y["text"]]
+)
+def test_sequence_labeling_quadrants(span_type):
+    true = [
+        [{"start": 0, "end": 1, "text": "a", "label": "class1", "other_key": "true_a"}],
+        [{"start": 0, "end": 1, "text": "b", "label": "class1", "other_key": "true_b"}],
+    ]
+    pred = [
+        [{"start": 0, "end": 1, "text": "a", "label": "class1", "other_key": "pred_a"}],
+        [{"start": 0, "end": 1, "text": "b", "label": "class1", "other_key": "pred_b"}],
+    ]
+    quadrants = get_seq_quadrants_fn(span_type=span_type)(true, pred)
+    assert quadrants.keys() == {"class1"}
+    for quadrant in ["true_positives", "false_positives", "false_negatives"]:
+        assert isinstance(quadrants["class1"][quadrant], list)
+        for instance in quadrants["class1"][quadrant]:
+            assert instance.keys() == {"true", "pred"}
+            if quadrant == "true_positives":
+                assert instance["true"] is not None and instance["pred"] is not None
+            else:
+                assert instance["true"] is None or instance["pred"] is None
+            for key in ["true", "pred"]:
+                # Assert that all keys are preserved.
+                pred_or_label = instance[key]
+                assert "other_key" in pred_or_label
+                assert pred_or_label["other_key"] == f"{key}_{pred_or_label['text']}"
