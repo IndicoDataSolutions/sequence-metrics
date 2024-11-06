@@ -2,7 +2,7 @@ import pytest
 
 from sequence_metrics.metrics import (
     get_all_metrics,
-    get_seq_count_fn,
+    get_seq_quadrants_fn,
     seq_precision,
     seq_recall,
     sequence_f1,
@@ -40,7 +40,7 @@ def all_combos(true, pred):
                 assert f1 is None
             else:
                 assert isinstance(f1, float)
-        counts = get_seq_count_fn(span_type)(true, pred)
+        counts = get_seq_quadrants_fn(span_type)(true, pred)
         assert set(counts.keys()) == set(classes)
         f1_by_class = sequence_f1(true, pred, span_type=span_type)
         precision_by_class = seq_precision(true, pred, span_type=span_type)
