@@ -1,4 +1,5 @@
 import copy
+import functools
 import re
 from collections import OrderedDict, defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -47,6 +48,7 @@ def _convert_to_token_list(annotations, doc_idx=None, unique_classes=None):
                     "text": token.text,
                     "label": annotation.get("label"),
                     "doc_idx": doc_idx,
+                    "doc_id": annotation.get("doc_id"),
                 }
                 for token in nlp(annotation.get("text"))
             ]
@@ -129,6 +131,7 @@ def sequence_labeling_token_quadrants(true, predicted):
                 if (
                     pred_token["start"] == true_token["start"]
                     and pred_token["end"] == true_token["end"]
+                    and pred_token["doc_id"] == true_token["doc_id"]
                 ):
                     if pred_token["label"] == true_token["label"]:
                         d[true_token["label"]]["true_positives"].append(
@@ -154,6 +157,7 @@ def sequence_labeling_token_quadrants(true, predicted):
                 if (
                     pred_token["start"] == true_token["start"]
                     and pred_token["end"] == true_token["end"]
+                    and pred_token["doc_id"] == true_token["doc_id"]
                 ):
                     break
             else:
@@ -324,10 +328,33 @@ def sequence_labeling_micro_token_f1(true, predicted):
     return micro_f1(true, predicted, span_type="token")
 
 
+def check_doc_id(metric_fn):
+    """
+    A decorator that adds doc_idx check to the comparison function.
+    """
+
+    @functools.wraps(metric_fn)
+    def wrapper(true: dict, predicted: dict):
+        true_doc_idx = true.get("doc_id", None)
+        predicted_doc_idx = predicted.get("doc_id", None)
+        if true_doc_idx is not None or predicted_doc_idx is not None:
+            if true_doc_idx is None:
+                raise ValueError("Label value is missing doc_id")
+            if predicted_doc_idx is None:
+                raise ValueError("Prediction value is missing doc_id")
+            if true_doc_idx != predicted_doc_idx:
+                return False
+        return metric_fn(true, predicted)
+
+    return wrapper
+
+
+@check_doc_id
 def sequences_overlap(x: dict, y: dict) -> bool:
     return x["start"] < y["end"] and y["start"] < x["end"]
 
 
+@check_doc_id
 def sequence_exact_match(true_seq, pred_seq):
     """
     Boolean return value indicates whether or not seqs are exact match
@@ -337,6 +364,7 @@ def sequence_exact_match(true_seq, pred_seq):
     return pred_seq["start"] == true_seq["start"] and pred_seq["end"] == true_seq["end"]
 
 
+@check_doc_id
 def sequence_superset(true_seq, pred_seq):
     """
     Boolean return value indicates whether or predicted seq is a superset of target

@@ -1,3 +1,5 @@
+import copy
+
 import pytest
 
 from sequence_metrics.metrics import (
@@ -9,6 +11,16 @@ from sequence_metrics.metrics import (
     sequences_overlap,
 )
 from sequence_metrics.testing import extend_label, verify_all_metrics_structure
+
+
+def add_doc_id(preds_or_labels, doc_id):
+    output = []
+    for p in preds_or_labels:
+        p_out = []
+        for pi in p:
+            p_out.append({**pi, "doc_id": doc_id})
+        output.append(p_out)
+    return output
 
 
 @pytest.mark.parametrize(
@@ -50,10 +62,38 @@ from sequence_metrics.testing import extend_label, verify_all_metrics_structure
             True,
         ),  # Identical start / end
         ({"start": 0, "end": 0}, {"start": 0, "end": 0}, False),
+        (
+            {"start": 0, "end": 2, "doc_id": 0},
+            {"start": 1, "end": 3, "doc_id": 1},
+            False,
+        ),  # Overlapping but different document
+        (
+            {"start": 0, "end": 2, "doc_id": 0},
+            {"start": 1, "end": 3, "doc_id": 0},
+            True,
+        ),  # Overlapping but same document
+        (
+            {"start": 0, "end": 1, "doc_id": 0},
+            {"start": 2, "end": 3, "doc_id": 1},
+            False,
+        ),  # Non-overlapping and different document
+        (
+            {"start": 0, "end": 1, "doc_id": 0},
+            {"start": 2, "end": 3, "doc_id": 0},
+            False,
+        ),  # Non-overlapping and same document
     ],
 )
 def test_overlap(a, b, expected):
     assert sequences_overlap(a, b) == sequences_overlap(b, a) == expected
+
+
+def test_overlap_doc_id_error():
+    with pytest.raises(ValueError):
+        sequences_overlap({"start": 0, "end": 1}, {"start": 0, "end": 1, "doc_id": 1})
+
+    with pytest.raises(ValueError):
+        sequences_overlap({"start": 0, "end": 1, "doc_id": 1}, {"start": 0, "end": 1})
 
 
 def check_metrics(Y, Y_pred, expected, span_type=None):
@@ -113,8 +153,9 @@ def check_metrics(Y, Y_pred, expected, span_type=None):
     )
 
 
+@pytest.mark.parametrize("with_doc_id", [None, "same", "different"])
 @pytest.mark.parametrize("span_type", ["overlap", "exact", "superset", "value"])
-def test_incorrect(span_type):
+def test_incorrect(span_type, with_doc_id):
     text = "Alert: Pepsi Company stocks are up today April 5, 2010 and no one profited."
     expected = {
         "entity": {
@@ -159,10 +200,17 @@ def test_incorrect(span_type):
         ],
         10,
     )
+    if with_doc_id == "same":
+        y_true = add_doc_id(y_true, 0)
+        y_false_pos = add_doc_id(y_false_pos, 0)
+    elif with_doc_id == "different":
+        y_true = add_doc_id(y_true, 0)
+        y_false_pos = add_doc_id(y_false_pos, 1)
     check_metrics(y_true, y_false_pos, expected, span_type=span_type)
 
 
-def test_token_correct():
+@pytest.mark.parametrize("with_doc_id", [None, "same"])
+def test_token_correct(with_doc_id):
     text = "Alert: Pepsi Company stocks are up today April 5, 2010 and no one profited."
     expected = {
         "entity": {
@@ -199,8 +247,12 @@ def test_token_correct():
         ],
         10,
     )
+    y_pred = copy.deepcopy(y_true)
+    if with_doc_id == "same":
+        y_true = add_doc_id(y_true, 0)
+        y_pred = add_doc_id(y_pred, 0)
 
-    check_metrics(y_true, y_true, expected, span_type="token")
+    check_metrics(y_true, y_pred, expected, span_type="token")
 
 
 def test_token_mixed():
@@ -388,6 +440,72 @@ def test_seq_mixed_overlap(overlapping):
         [
             {"start": 21, "end": 28, "label": "entity"},
             {"start": 62, "end": 65, "label": "date"},
+        ],
+        4,
+    ) + extend_label(text, overlapping, 6)
+    check_metrics(y_true, y_mixed, expected=expected, span_type="overlap")
+
+
+@pytest.mark.parametrize(
+    "overlapping",
+    [
+        [
+            {"start": 5, "end": 16, "label": "entity", "doc_id": 0},
+            {"start": 34, "end": 50, "label": "date", "doc_id": 1},
+        ],
+        [
+            {"start": 6, "end": 10, "label": "entity", "doc_id": 0},
+            {"start": 15, "end": 23, "label": "entity", "doc_id": 0},
+            {"start": 34, "end": 50, "label": "date", "doc_id": 1},
+        ],
+        [
+            {"start": 6, "end": 21, "label": "entity", "doc_id": 0},
+            {"start": 38, "end": 60, "label": "date", "doc_id": 1},
+        ],
+    ],
+)
+def test_seq_mixed_overlap_with_doc_id(overlapping):
+    text = "Alert: Pepsi Company stocks are up today April 5, 2010 and no one profited."
+    expected = {
+        "entity": {
+            "false_positives": 4,
+            "false_negatives": 4,
+            "true_positives": 6,
+            "precision": 0.6,
+            "recall": 0.6,
+            "f1-score": 0.6,
+        },
+        "date": {
+            "false_positives": 4,
+            "false_negatives": 4,
+            "true_positives": 6,
+            "precision": 0.6,
+            "recall": 0.6,
+            "f1-score": 0.6,
+        },
+        "micro_f1": 0.6,
+        "macro_f1": 0.6,
+        "weighted_f1": 0.6,
+        "micro_precision": 0.6,
+        "macro_precision": 0.6,
+        "weighted_precision": 0.6,
+        "micro_recall": 0.6,
+        "macro_recall": 0.6,
+        "weighted_recall": 0.6,
+    }
+    y_true = extend_label(
+        text,
+        [
+            {"start": 7, "end": 20, "label": "entity", "doc_id": 0},
+            {"start": 41, "end": 54, "label": "date", "doc_id": 1},
+        ],
+        10,
+    )
+    y_mixed = extend_label(
+        text,
+        [
+            {"start": 21, "end": 28, "label": "entity", "doc_id": 0},
+            {"start": 62, "end": 65, "label": "date", "doc_id": 1},
         ],
         4,
     ) + extend_label(text, overlapping, 6)
@@ -748,12 +866,14 @@ def test_value_metrics(pred):
         "macro_recall": 1.0,
         "weighted_recall": 1.0,
     }
-    check_metrics(
-        [y_true],
-        [y_pred],
-        expected=expected,
-        span_type="value",
-    )
+    for pred_doc_id, label_doc_id in [(0, 0), (0, 1), (1, 0), (None, None)]:
+        # Doc ids shouldnt make any difference to the value metrics
+        check_metrics(
+            add_doc_id([y_true], label_doc_id),
+            add_doc_id([y_pred], pred_doc_id),
+            expected=expected,
+            span_type="value",
+        )
 
 
 def test_get_all_metrics():
@@ -779,6 +899,37 @@ def test_get_all_metrics():
         [
             {"start": 7, "end": 20, "label": "entity"},
             {"start": 41, "end": 54, "label": "date"},
+        ],
+        10,
+    )
+
+    all_metrics = get_all_metrics(preds=y_mixed, labels=y_true)
+    verify_all_metrics_structure(all_metrics=all_metrics, classes=["entity", "date"])
+
+
+def test_get_all_metrics_with_doc_id():
+    text = "Alert: Pepsi Company stocks are up today April 5, 2010 and no one profited."
+
+    y_mixed = extend_label(
+        text,
+        [
+            {"start": 21, "end": 28, "label": "entity", "doc_id": 0},
+            {"start": 62, "end": 65, "label": "date", "doc_id": 1},
+        ],
+        5,
+    ) + extend_label(
+        text,
+        [
+            {"start": 7, "end": 20, "label": "entity", "doc_id": 0},
+            {"start": 41, "end": 54, "label": "date", "doc_id": 1},
+        ],
+        5,
+    )
+    y_true = extend_label(
+        text,
+        [
+            {"start": 7, "end": 20, "label": "entity", "doc_id": 0},
+            {"start": 41, "end": 54, "label": "date", "doc_id": 1},
         ],
         10,
     )
