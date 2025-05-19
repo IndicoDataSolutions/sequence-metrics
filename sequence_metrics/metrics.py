@@ -1,7 +1,9 @@
 import copy
+import functools
 import re
+import typing as t
 from collections import OrderedDict, defaultdict
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from typing import Callable
 
@@ -11,6 +13,24 @@ import tabulate
 from sklearn.metrics import confusion_matrix
 
 NLP = None
+
+LabeledSpan = t.TypedDict(
+    "LabeledSpan",
+    {
+        "start": int,
+        "end": int,
+        "label": str,
+        # Doc-id allows us to compute bundle-level metrics. Use doc-id to
+        # compare spans across documents. Can be any type other than NoneType
+        # as long as we can compare equality with ==.
+        "doc_id": t.Optional[t.Any],
+        "text": str,
+        # You can have any other fields, and they will be persisted to the quadrant outputs.
+    },
+)
+
+SpanType = t.Literal["token", "overlap", "exact", "superset", "value"]
+AverageType = t.Literal["micro", "macro", "weighted"]
 
 
 def get_spacy():
@@ -25,12 +45,16 @@ def get_spacy():
     return NLP
 
 
-def _get_unique_classes(true, predicted):
+def _get_unique_classes(
+    true: t.Sequence[LabeledSpan], predicted: t.Sequence[LabeledSpan]
+) -> list[str]:
     true_and_pred = list(true) + list(predicted)
-    return list(set([seq["label"] for seqs in true_and_pred for seq in seqs]))
+    return list({seq["label"] for seqs in true_and_pred for seq in seqs})
 
 
-def _convert_to_token_list(annotations, doc_idx=None, unique_classes=None):
+def _convert_to_token_list(
+    annotations: t.Sequence[LabeledSpan], unique_classes: t.Optional[list[str]] = None
+) -> list:
     nlp = get_spacy()
     tokens = []
     annotations = copy.deepcopy(annotations)
@@ -46,7 +70,7 @@ def _convert_to_token_list(annotations, doc_idx=None, unique_classes=None):
                     "end": start_idx + token.idx + len(token.text),
                     "text": token.text,
                     "label": annotation.get("label"),
-                    "doc_idx": doc_idx,
+                    "doc_id": annotation.get("doc_id"),
                 }
                 for token in nlp(annotation.get("text"))
             ]
@@ -55,7 +79,11 @@ def _convert_to_token_list(annotations, doc_idx=None, unique_classes=None):
     return tokens
 
 
-def sequence_labeling_token_confusion(text, true, predicted):
+def sequence_labeling_token_confusion(
+    text: t.Sequence[str],
+    true: t.Sequence[t.Sequence[LabeledSpan]],
+    predicted: t.Sequence[t.Sequence[LabeledSpan]],
+) -> str:
     nlp = get_spacy()
     none_class = "<None>"
     unique_classes = _get_unique_classes(true, predicted)
@@ -94,7 +122,10 @@ def sequence_labeling_token_confusion(text, true, predicted):
     )
 
 
-def sequence_labeling_token_quadrants(true, predicted):
+def sequence_labeling_token_quadrants(
+    true: t.Sequence[t.Sequence[LabeledSpan]],
+    predicted: t.Sequence[t.Sequence[LabeledSpan]],
+) -> dict[str, t.Optional[dict[str, list[dict[str, LabeledSpan]]]]]:
     """
     Return FP, FN, and TP quadrants
     """
@@ -115,13 +146,9 @@ def sequence_labeling_token_quadrants(true, predicted):
     for cls_ in classes_to_skip:
         d[cls_] = None
 
-    for i, (true_list, pred_list) in enumerate(zip(true, predicted)):
-        true_tokens = _convert_to_token_list(
-            true_list, doc_idx=i, unique_classes=unique_classes
-        )
-        pred_tokens = _convert_to_token_list(
-            pred_list, doc_idx=i, unique_classes=unique_classes
-        )
+    for true_list, pred_list in zip(true, predicted):
+        true_tokens = _convert_to_token_list(true_list, unique_classes=unique_classes)
+        pred_tokens = _convert_to_token_list(pred_list, unique_classes=unique_classes)
 
         # correct + false negatives
         for true_token in true_tokens:
@@ -129,6 +156,7 @@ def sequence_labeling_token_quadrants(true, predicted):
                 if (
                     pred_token["start"] == true_token["start"]
                     and pred_token["end"] == true_token["end"]
+                    and pred_token["doc_id"] == true_token["doc_id"]
                 ):
                     if pred_token["label"] == true_token["label"]:
                         d[true_token["label"]]["true_positives"].append(
@@ -154,6 +182,7 @@ def sequence_labeling_token_quadrants(true, predicted):
                 if (
                     pred_token["start"] == true_token["start"]
                     and pred_token["end"] == true_token["end"]
+                    and pred_token["doc_id"] == true_token["doc_id"]
                 ):
                     break
             else:
@@ -185,7 +214,11 @@ def calc_f1(recall, precision):
         return 0.0
 
 
-def seq_recall(true, predicted, span_type: str | Callable = "token"):
+def seq_recall(
+    true: t.Sequence[t.Sequence[LabeledSpan]],
+    predicted: t.Sequence[t.Sequence[LabeledSpan]],
+    span_type: SpanType | Callable = "token",
+) -> dict[str, float | None]:
     quadrants_fn = get_seq_quadrants_fn(span_type)
     class_quadrants = quadrants_fn(true, predicted)
     results = {}
@@ -200,7 +233,11 @@ def seq_recall(true, predicted, span_type: str | Callable = "token"):
     return results
 
 
-def seq_precision(true, predicted, span_type: str | Callable = "token"):
+def seq_precision(
+    true: t.Sequence[t.Sequence[LabeledSpan]],
+    predicted: t.Sequence[t.Sequence[LabeledSpan]],
+    span_type: SpanType | Callable = "token",
+) -> dict[str, float | None]:
     quadrants_fn = get_seq_quadrants_fn(span_type)
     class_quadrants = quadrants_fn(true, predicted)
     results = {}
@@ -215,7 +252,11 @@ def seq_precision(true, predicted, span_type: str | Callable = "token"):
     return results
 
 
-def micro_f1(true, predicted, span_type: str | Callable = "token"):
+def micro_f1(
+    true: t.Sequence[t.Sequence[LabeledSpan]],
+    predicted: t.Sequence[t.Sequence[LabeledSpan]],
+    span_type: SpanType | Callable = "token",
+) -> float | None:
     quadrants_fn = get_seq_quadrants_fn(span_type)
     class_quadrants = quadrants_fn(true, predicted)
     TP, FP, FN = 0, 0, 0
@@ -232,7 +273,11 @@ def micro_f1(true, predicted, span_type: str | Callable = "token"):
     return calc_f1(recall, precision)
 
 
-def per_class_f1(true, predicted, span_type: str | Callable = "token"):
+def per_class_f1(
+    true: t.Sequence[t.Sequence[LabeledSpan]],
+    predicted: t.Sequence[t.Sequence[LabeledSpan]],
+    span_type: SpanType | Callable = "token",
+) -> dict[str, float | None]:
     """
     F1-scores per class
     """
@@ -255,7 +300,12 @@ def per_class_f1(true, predicted, span_type: str | Callable = "token"):
     return results
 
 
-def sequence_f1(true, predicted, span_type: str | Callable = "token", average=None):
+def sequence_f1(
+    true: t.Sequence[t.Sequence[LabeledSpan]],
+    predicted: t.Sequence[t.Sequence[LabeledSpan]],
+    span_type: SpanType | Callable = "token",
+    average: AverageType | None = None,
+) -> float | dict[str, float | None]:
     """
     If average = None, return per-class F1 scores, otherwise
     return the requested model-level score.
@@ -282,7 +332,7 @@ def sequence_f1(true, predicted, span_type: str | Callable = "token", average=No
     raise ValueError(f"Unknown average: {average}")
 
 
-def strip_whitespace(y):
+def strip_whitespace(y: LabeledSpan) -> LabeledSpan:
     label_text = y["text"]
     lstripped = label_text.lstrip()
     new_start = y["start"] + (len(label_text) - len(lstripped))
@@ -291,7 +341,7 @@ def strip_whitespace(y):
         "text": label_text.strip(),
         "start": new_start,
         "end": new_start + len(stripped),
-        "label": y["label"],
+        **{k: v for k, v in y.items() if k not in ["text", "start", "end"]},
     }
 
 
@@ -299,36 +349,70 @@ def _norm_text(text: str) -> str:
     return re.sub(r"[^A-Za-z0-9]", "", text).lower()
 
 
-def fuzzy_compare(x: dict, y: dict) -> bool:
+def fuzzy_compare(x: LabeledSpan, y: LabeledSpan) -> bool:
     return _norm_text(x["text"]) == _norm_text(y["text"])
 
 
-def sequence_labeling_token_precision(true, predicted):
+def sequence_labeling_token_precision(
+    true: t.Sequence[t.Sequence[LabeledSpan]],
+    predicted: t.Sequence[t.Sequence[LabeledSpan]],
+) -> dict[str, float | None]:
     """
     Token level precision
     """
     return seq_precision(true, predicted, span_type="token")
 
 
-def sequence_labeling_token_recall(true, predicted):
+def sequence_labeling_token_recall(
+    true: t.Sequence[t.Sequence[LabeledSpan]],
+    predicted: t.Sequence[t.Sequence[LabeledSpan]],
+) -> dict[str, float | None]:
     """
     Token level recall
     """
     return seq_recall(true, predicted, span_type="token")
 
 
-def sequence_labeling_micro_token_f1(true, predicted):
+def sequence_labeling_micro_token_f1(
+    true: t.Sequence[t.Sequence[LabeledSpan]],
+    predicted: t.Sequence[t.Sequence[LabeledSpan]],
+) -> float | None:
     """
     Token level F1
     """
     return micro_f1(true, predicted, span_type="token")
 
 
-def sequences_overlap(x: dict, y: dict) -> bool:
+def check_doc_id(
+    metric_fn: Callable[[LabeledSpan, LabeledSpan], bool]
+) -> Callable[[LabeledSpan, LabeledSpan], bool]:
+    """
+    A decorator that adds doc_id check to the comparison function.
+    """
+
+    @functools.wraps(metric_fn)
+    def wrapper(true: LabeledSpan, predicted: LabeledSpan):
+        true_doc_id = true.get("doc_id", None)
+        predicted_doc_id = predicted.get("doc_id", None)
+        if true_doc_id is not None or predicted_doc_id is not None:
+            if true_doc_id is None:
+                raise ValueError("Label value is missing doc_id")
+            if predicted_doc_id is None:
+                raise ValueError("Prediction value is missing doc_id")
+            if true_doc_id != predicted_doc_id:
+                return False
+        return metric_fn(true, predicted)
+
+    return wrapper
+
+
+@check_doc_id
+def sequences_overlap(x: LabeledSpan, y: LabeledSpan) -> bool:
     return x["start"] < y["end"] and y["start"] < x["end"]
 
 
-def sequence_exact_match(true_seq, pred_seq):
+@check_doc_id
+def sequence_exact_match(true_seq: LabeledSpan, pred_seq: LabeledSpan) -> bool:
     """
     Boolean return value indicates whether or not seqs are exact match
     """
@@ -337,7 +421,8 @@ def sequence_exact_match(true_seq, pred_seq):
     return pred_seq["start"] == true_seq["start"] and pred_seq["end"] == true_seq["end"]
 
 
-def sequence_superset(true_seq, pred_seq):
+@check_doc_id
+def sequence_superset(true_seq: LabeledSpan, pred_seq: LabeledSpan) -> bool:
     """
     Boolean return value indicates whether or predicted seq is a superset of target
     """
@@ -346,7 +431,11 @@ def sequence_superset(true_seq, pred_seq):
     return pred_seq["start"] <= true_seq["start"] and pred_seq["end"] >= true_seq["end"]
 
 
-def single_class_single_example_quadrants(true, predicted, equality_fn):
+def single_class_single_example_quadrants(
+    true: t.Sequence[LabeledSpan],
+    predicted: t.Sequence[LabeledSpan],
+    equality_fn: Callable[[LabeledSpan, LabeledSpan], bool],
+) -> dict[str, list[dict[str, LabeledSpan]]]:
     """
     Return FP, FN, and TP quadrants for a single class
     """
@@ -379,7 +468,12 @@ def single_class_single_example_quadrants(true, predicted, equality_fn):
     return quadrants
 
 
-def sequence_labeling_quadrants(true, predicted, equality_fn, n_threads=5):
+def sequence_labeling_quadrants(
+    true: t.Sequence[t.Sequence[LabeledSpan]],
+    predicted: t.Sequence[t.Sequence[LabeledSpan]],
+    equality_fn: Callable[[LabeledSpan, LabeledSpan], bool],
+    n_threads: int = 5,
+) -> dict[str, list[dict[str, LabeledSpan]]]:
     """
     Return FP, FN, and TP quadrants
     """
@@ -389,9 +483,7 @@ def sequence_labeling_quadrants(true, predicted, equality_fn, n_threads=5):
     future_to_cls = {}
     with ThreadPoolExecutor(max_workers=n_threads) as pool:
         for cls_ in unique_classes:
-            for i, (true_annotations, predicted_annotations) in enumerate(
-                zip(true, predicted)
-            ):
+            for true_annotations, predicted_annotations in zip(true, predicted):
                 # Per example
                 true_cls_annotations = [
                     annotation
@@ -403,9 +495,6 @@ def sequence_labeling_quadrants(true, predicted, equality_fn, n_threads=5):
                     for annotation in predicted_annotations
                     if annotation["label"] == cls_
                 ]
-                for annotations in [predicted_cls_annotations, true_cls_annotations]:
-                    for annotation in annotations:
-                        annotation["doc_idx"] = i
 
                 ex_quadrants_future = pool.submit(
                     single_class_single_example_quadrants,
@@ -415,8 +504,7 @@ def sequence_labeling_quadrants(true, predicted, equality_fn, n_threads=5):
                 )
                 future_to_cls[ex_quadrants_future] = cls_
 
-    for future in future_to_cls:
-        cls_ = future_to_cls[future]
+    for future, cls_ in future_to_cls.items():
         ex_quadrants = future.result()
         if ex_quadrants.get("skip_class", False) or cls_ in d and d[cls_] is None:
             # Class is skipped due to key error on equality function
@@ -434,7 +522,7 @@ def sequence_labeling_quadrants(true, predicted, equality_fn, n_threads=5):
     return d
 
 
-EQUALITY_FN_MAP = {
+EQUALITY_FN_MAP: dict[SpanType, Callable[[LabeledSpan, LabeledSpan], bool]] = {
     "overlap": sequences_overlap,
     "exact": sequence_exact_match,
     "superset": sequence_superset,
@@ -451,7 +539,7 @@ SPAN_TYPE_FN_MAPPING = {
 }
 
 
-def get_seq_quadrants_fn(span_type: str | Callable = "token"):
+def get_seq_quadrants_fn(span_type: SpanType | Callable = "token"):
     if isinstance(span_type, str):
         return SPAN_TYPE_FN_MAPPING[span_type]
     elif callable(span_type):
@@ -463,21 +551,30 @@ def get_seq_quadrants_fn(span_type: str | Callable = "token"):
     )
 
 
-def sequence_labeling_overlap_precision(true, predicted):
+def sequence_labeling_overlap_precision(
+    true: t.Sequence[t.Sequence[LabeledSpan]],
+    predicted: t.Sequence[t.Sequence[LabeledSpan]],
+) -> dict[str, float | None]:
     """
     Sequence overlap precision
     """
     return seq_precision(true, predicted, span_type="overlap")
 
 
-def sequence_labeling_overlap_recall(true, predicted):
+def sequence_labeling_overlap_recall(
+    true: t.Sequence[t.Sequence[LabeledSpan]],
+    predicted: t.Sequence[t.Sequence[LabeledSpan]],
+) -> dict[str, float | None]:
     """
     Sequence overlap recall
     """
     return seq_recall(true, predicted, span_type="overlap")
 
 
-def sequence_labeling_overlap_micro_f1(true, predicted):
+def sequence_labeling_overlap_micro_f1(
+    true: t.Sequence[t.Sequence[LabeledSpan]],
+    predicted: t.Sequence[t.Sequence[LabeledSpan]],
+) -> float | None:
     """
     Sequence overlap micro F1
     """
@@ -486,11 +583,11 @@ def sequence_labeling_overlap_micro_f1(true, predicted):
 
 def annotation_report(
     y_true,
-    y_pred,
-    labels=None,
-    target_names=None,
-    digits=2,
-    width=20,
+    y_pred: t.Sequence[t.Sequence[LabeledSpan]],
+    labels: t.Optional[t.Sequence[str]] = None,
+    target_names: t.Optional[t.Sequence[str]] = None,
+    digits: int = 2,
+    width: int = 20,
 ):
     # Adaptation of https://github.com/scikit-learn/scikit-learn/blob/f0ab589f/sklearn/metrics/classification.py#L1363
     token_precision = sequence_labeling_token_precision(y_true, y_pred)
@@ -539,7 +636,12 @@ def annotation_report(
     return report
 
 
-def get_spantype_metrics(span_type, preds, labels, field_names) -> dict[str, dict]:
+def get_spantype_metrics(
+    span_type: SpanType,
+    preds: t.Sequence[t.Sequence[LabeledSpan]],
+    labels: t.Sequence[t.Sequence[LabeledSpan]],
+    field_names: t.Sequence[str],
+) -> dict[str, dict]:
     quadrants = get_seq_quadrants_fn(span_type)(labels, preds)
     precisions = seq_precision(labels, preds, span_type)
     recalls = seq_recall(labels, preds, span_type)
@@ -574,19 +676,21 @@ def get_spantype_metrics(span_type, preds, labels, field_names) -> dict[str, dic
     }
 
 
-def weighted_mean(value, weights):
+def weighted_mean(value: t.Sequence[float], weights: t.Sequence[float]) -> float:
     if sum(weights) == 0.0:
         return 0.0
     return sum(v * w for v, w in zip(value, weights)) / sum(weights)
 
 
-def mean(value: list):
+def mean(value: t.Sequence[float]) -> float:
     if sum(value) == 0:
         return 0.0
     return sum(value) / len(value)
 
 
-def summary_metrics(metrics):
+def summary_metrics(
+    metrics: dict[SpanType, dict[str, dict]]
+) -> dict[SpanType, dict[str, float | None]]:
     summary = {}
     for span_type, span_metrics in metrics.items():
         span_type_summary = {}
@@ -628,10 +732,14 @@ def summary_metrics(metrics):
     return summary
 
 
-def get_all_metrics(preds, labels, field_names=None):
+def get_all_metrics(
+    preds: t.Sequence[t.Sequence[LabeledSpan]],
+    labels: t.Sequence[t.Sequence[LabeledSpan]],
+    field_names: t.Optional[t.Sequence[str]] = None,
+) -> dict[str, dict]:
     if field_names is None:
         field_names = sorted(set(l["label"] for li in (labels + preds) for l in li))
-    detailed_metrics = dict()
+    detailed_metrics: dict[SpanType, dict[str, dict]] = {}
     for span_type in ["token", "overlap", "exact", "superset", "value"]:
         detailed_metrics[span_type] = get_spantype_metrics(
             span_type=span_type, preds=preds, labels=labels, field_names=field_names
