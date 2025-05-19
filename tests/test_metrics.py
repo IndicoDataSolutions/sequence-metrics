@@ -3,6 +3,7 @@ import copy
 import pytest
 
 from sequence_metrics.metrics import (
+    check_doc_id,
     get_all_metrics,
     get_seq_quadrants_fn,
     seq_precision,
@@ -1067,3 +1068,27 @@ def test_sequence_labeling_quadrants(span_type):
                 pred_or_label = instance[key]
                 assert "other_key" in pred_or_label
                 assert pred_or_label["other_key"] == f"{key}_{pred_or_label['text']}"
+
+
+def test_check_doc_id_decorator():
+    compared = object()
+
+    @check_doc_id
+    def test_fn(true, pred):
+        return compared
+
+    assert test_fn({"doc_id": None}, {"doc_id": None}) == compared
+    with pytest.raises(ValueError):
+        test_fn({"doc_id": 0}, {"doc_id": None})
+    with pytest.raises(ValueError):
+        test_fn({"doc_id": None}, {"doc_id": 0})
+
+    assert test_fn({"doc_id": 0}, {"doc_id": 1}) == False
+    assert test_fn({"doc_id": 0}, {"doc_id": 0}) == compared
+
+    # Shouldn't matter what doc_id is as long as it's comparable and not None.
+    assert test_fn({"doc_id": "zero"}, {"doc_id": "one"}) == False
+    assert (
+        test_fn({"doc_id": "the quick brown fox"}, {"doc_id": "the quick brown fox"})
+        == compared
+    )
