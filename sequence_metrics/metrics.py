@@ -1,3 +1,4 @@
+import contextvars
 import copy
 import functools
 import re
@@ -481,6 +482,7 @@ def sequence_labeling_quadrants(
 
     d = {}
     future_to_cls = {}
+    ctx = contextvars.copy_context()
     with ThreadPoolExecutor(max_workers=n_threads) as pool:
         for cls_ in unique_classes:
             for true_annotations, predicted_annotations in zip(true, predicted):
@@ -497,6 +499,7 @@ def sequence_labeling_quadrants(
                 ]
 
                 ex_quadrants_future = pool.submit(
+                    ctx.run,
                     single_class_single_example_quadrants,
                     true_cls_annotations,
                     predicted_cls_annotations,
