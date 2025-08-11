@@ -1,3 +1,4 @@
+import contextvars
 import copy
 
 import pytest
@@ -1091,4 +1092,19 @@ def test_check_doc_id_decorator():
     assert (
         test_fn({"doc_id": "the quick brown fox"}, {"doc_id": "the quick brown fox"})
         == compared
+    )
+
+
+def test_custom_equality_fn_context_vars():
+    true = [[{"text": "a", "label": "class1"}]]
+    pred = [[{"text": "b", "label": "class1"}]]
+    cvar = contextvars.ContextVar("context_vars", default={})
+    cvar.set({"a": "b"})
+
+    def custom_equality_with_context_vars(true, pred):
+        assert cvar.get() == {"a": "b"}
+        return True
+
+    sequence_f1(
+        true, pred, span_type=custom_equality_with_context_vars, average="macro"
     )
