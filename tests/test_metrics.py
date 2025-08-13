@@ -1,5 +1,6 @@
 import contextvars
 import copy
+import time
 
 import pytest
 
@@ -1096,12 +1097,15 @@ def test_check_doc_id_decorator():
 
 
 def test_custom_equality_fn_context_vars():
-    true = [[{"text": "a", "label": "class1"}]]
-    pred = [[{"text": "b", "label": "class1"}]]
+    true = [[{"text": "a", "label": f"class{i}"} for i in range(100)]]
+    pred = [[{"text": "b", "label": f"class{i}"} for i in range(100)]]
     cvar = contextvars.ContextVar("context_vars", default={})
     cvar.set({"a": "b"})
 
     def custom_equality_with_context_vars(true, pred):
+        # Sleep is so that the function takes longer than it takes to create a thread and therefore they run concurrently.
+        # This is a regression test for an issue caused by entering the same context at the same time in different threads.
+        time.sleep(0.01)
         assert cvar.get() == {"a": "b"}
         return True
 
