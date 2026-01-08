@@ -738,11 +738,14 @@ def get_all_metrics(
     preds: t.Sequence[t.Sequence[LabeledSpan]],
     labels: t.Sequence[t.Sequence[LabeledSpan]],
     field_names: t.Optional[t.Sequence[str]] = None,
+    span_types: t.Optional[t.Sequence[SpanType]] = None,
 ) -> dict[str, dict]:
     if field_names is None:
         field_names = sorted(set(l["label"] for li in (labels + preds) for l in li))
     detailed_metrics: dict[SpanType, dict[str, dict]] = {}
-    for span_type in ["token", "overlap", "exact", "superset", "value"]:
+    if span_types is None:
+        span_types = ["token", "overlap", "exact", "superset", "value"]
+    for span_type in span_types:
         detailed_metrics[span_type] = get_spantype_metrics(
             span_type=span_type, preds=preds, labels=labels, field_names=field_names
         )
