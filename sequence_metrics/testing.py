@@ -1,5 +1,6 @@
-def verify_all_metrics_structure(all_metrics, classes, none_classes=None):
-    span_types = ["token", "overlap", "exact", "superset", "value"]
+def verify_all_metrics_structure(all_metrics, classes, none_classes=None, span_types=None):
+    if span_types is None:
+        span_types = ["token", "overlap", "exact", "superset", "value"]
     assert len(all_metrics.keys()) == 2
     summary_metrics = all_metrics["summary_metrics"]
     assert len(summary_metrics.keys()) == len(span_types)

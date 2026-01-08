@@ -909,6 +909,13 @@ def test_get_all_metrics():
     all_metrics = get_all_metrics(preds=y_mixed, labels=y_true)
     verify_all_metrics_structure(all_metrics=all_metrics, classes=["entity", "date"])
 
+def test_get_all_metrics_with_span_types():
+    text = "Alert: Pepsi Company stocks are up today April 5, 2010 and no one profited."
+    y_true = extend_label(text, [{"start": 7, "end": 20, "label": "entity"}, {"start": 41, "end": 54, "label": "date"}], 10)
+    y_pred = extend_label(text, [{"start": 7, "end": 20, "label": "entity"}, {"start": 41, "end": 54, "label": "date"}], 10)
+    span_types = ["value", "overlap"]
+    all_metrics = get_all_metrics(preds=y_pred, labels=y_true, span_types=span_types)
+    verify_all_metrics_structure(all_metrics=all_metrics, classes=["entity", "date"], span_types=span_types)
 
 def test_get_all_metrics_with_doc_id():
     text = "Alert: Pepsi Company stocks are up today April 5, 2010 and no one profited."
@@ -1112,3 +1119,15 @@ def test_custom_equality_fn_context_vars():
     sequence_f1(
         true, pred, span_type=custom_equality_with_context_vars, average="macro"
     )
+
+
+def test_value_ignores_doc_id():
+    true = [
+        [{"start": 0, "end": 1, "text": "a", "label": "class1", "doc_id": 0}],
+    ]
+    pred = [
+        [{"start": 0, "end": 1, "text": "a", "label": "class1", "doc_id": 1}],
+    ]
+    quadrants = get_seq_quadrants_fn(span_type="value")(true, pred)
+    assert len(quadrants["class1"]["true_positives"]) == 1
+    assert all([len(quadrants["class1"][q]) == 0 for q in ["false_positives", "false_negatives"]])
