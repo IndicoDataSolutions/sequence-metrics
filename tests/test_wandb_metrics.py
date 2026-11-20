@@ -1,6 +1,6 @@
 import pytest
 
-import wandb
+wandb = pytest.importorskip("wandb")
 from sequence_metrics.wandb_tools import log_to_wandb
 
 

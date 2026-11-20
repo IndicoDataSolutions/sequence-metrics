@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "sequence-metrics"
-version = "0.1.5"
+version = "0.1.6"
 description = "A set of metrics for Sequence Labelling tasks"
 readme = "README.md"
 authors = ["Indico Data <rd@indicodata.ai>"]
@@ -13,7 +13,10 @@ scikit-learn = "^1.0.0"
 tabulate = "*"
 numpy = "*"
 pandas = "*"
-wandb = "*"
+wandb = {version = "*", optional = true}
+
+[tool.poetry.extras]
+wandb = ["wandb"]
 
 [tool.poetry.group.dev.dependencies]
 pytest = "*"
