@@ -2,7 +2,15 @@ import typing as t
 
 import pandas as pd
 
-import wandb
+try:
+    import wandb
+except ModuleNotFoundError as exc:
+    if exc.name != "wandb":
+        raise
+    raise ImportError(
+        "Install sequence-metrics[wandb] to use sequence_metrics.wandb_tools."
+    ) from exc
+
 from sequence_metrics.metrics import (
     EQUALITY_FN_MAP,
     _get_unique_classes,
